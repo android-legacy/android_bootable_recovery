@@ -82,6 +82,8 @@ int main(int argc, char **argv) {
 	crash_counter = atoi(crash_prop_val) + 1;
 	snprintf(crash_prop_val, sizeof(crash_prop_val), "%d", crash_counter);
 	property_set("twrp.crash_counter", crash_prop_val);
+	property_set("ro.twrp.boot", "1");
+	property_set("ro.twrp.version", TW_VERSION_STR);
 
 	time_t StartupTime = time(NULL);
 	printf("Starting TWRP %s on %s", TW_VERSION_STR, ctime(&StartupTime));
@@ -268,6 +270,13 @@ int main(int argc, char **argv) {
 	}
 
 	// Read the settings file
+#ifdef TW_HAS_MTP
+	// We unmount partitions sometimes during early boot which may override
+	// the default of MTP being enabled by auto toggling MTP off. This
+	// will force it back to enabled then get overridden by the settings
+	// file, assuming that an entry for tw_mtp_enabled is set.
+	DataManager::SetValue("tw_mtp_enabled", 1);
+#endif
 	DataManager::ReadSettingsFile();
 
 	// Fixup the RTC clock on devices which require it
@@ -277,6 +286,23 @@ int main(int argc, char **argv) {
 	// Run any outstanding OpenRecoveryScript
 	if (DataManager::GetIntValue(TW_IS_ENCRYPTED) == 0 && (TWFunc::Path_Exists(SCRIPT_FILE_TMP) || TWFunc::Path_Exists(SCRIPT_FILE_CACHE))) {
 		OpenRecoveryScript::Run_OpenRecoveryScript();
+	}
+
+	// Enable MTP?
+	if (DataManager::GetIntValue(TW_IS_ENCRYPTED) != 0) {
+		if (DataManager::GetIntValue(TW_IS_DECRYPTED) != 0 && DataManager::GetIntValue("tw_mtp_enabled") == 1) {
+			LOGINFO("Enabling MTP during startup\n");
+			if (!PartitionManager.Enable_MTP())
+				PartitionManager.Disable_MTP();
+			else
+				gui_print("MTP Enabled\n");
+		}
+	} else if (DataManager::GetIntValue("tw_mtp_enabled") == 1) {
+		LOGINFO("Enabling MTP during startup\n");
+		if (!PartitionManager.Enable_MTP())
+			PartitionManager.Disable_MTP();
+		else
+			gui_print("MTP Enabled\n");
 	}
 
 	// Launch the main GUI
