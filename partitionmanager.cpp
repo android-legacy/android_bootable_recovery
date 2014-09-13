@@ -29,6 +29,7 @@
 #include <fcntl.h>
 #include <iostream>
 #include <iomanip>
+#include <sys/wait.h>
 #include "variables.h"
 #include "twcommon.h"
 #include "partitions.hpp"
@@ -2153,7 +2154,7 @@ TWPartition *TWPartitionManager::Get_Default_Storage_Partition()
 
 bool TWPartitionManager::Enable_MTP(void) {
 #ifdef TW_HAS_MTP
-	if (mtpthread) {
+	if (mtppid) {
 		LOGERR("MTP already enabled\n");
 		return true;
 	}
@@ -2183,9 +2184,14 @@ bool TWPartitionManager::Enable_MTP(void) {
 		}
 	}
 	if (count) {
-		mtpthread = mtp->runserver();
-		DataManager::SetValue("tw_mtp_enabled", 1);
-		return true;
+		mtppid = mtp->forkserver();
+		if (mtppid) {
+			DataManager::SetValue("tw_mtp_enabled", 1);
+			return true;
+		} else {
+			LOGERR("Failed to enable MTP\n");
+			return false;
+		}
 	}
 	LOGERR("No valid storage partitions found for MTP.\n");
 #else
@@ -2206,9 +2212,13 @@ bool TWPartitionManager::Disable_MTP(void) {
 	string productstr = product;
 	TWFunc::write_file("/sys/class/android_usb/android0/idVendor", vendorstr);
 	TWFunc::write_file("/sys/class/android_usb/android0/idProduct", productstr);
-	if (mtpthread) {
-		pthread_kill(mtpthread, 0);
-		mtpthread = NULL;
+	if (mtppid) {
+		LOGINFO("Disabling MTP\n");
+		int status;
+		kill(mtppid, SIGKILL);
+		mtppid = 0;
+		// We don't care about the exit value, but this prevents a zombie process
+		waitpid(mtppid, &status, 0);
 	}
 	property_set("sys.usb.config", "adb");
 	DataManager::SetValue("tw_mtp_enabled", 0);
